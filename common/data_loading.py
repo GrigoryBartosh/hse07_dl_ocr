@@ -6,7 +6,9 @@ import torch
 import torchvision.transforms as transforms
 import torch.utils.data as data
 from PIL import Image
+from pycocotools.coco import COCO
 
+import common.simple_stacker as simple_stacker
 from common.config import PATH
 
 __all__ = ['get_loader']
@@ -25,18 +27,9 @@ class ImageGetter():
         return image
 
 
-# TODO @iisuslik43
-class TextEncoder():
-    def __init__(self):
-        pass
-
-    def encode(self, text):
-        return text
-
-
 class DatasetImages(data.Dataset):
     def _check_filename(filename):
-        return filename[-4:] == '.png' or filename[-4:] == '.jpg'
+        return filename.endswith('.png') or filename.endswith('.jpg')
 
     def __init__(self, imgs_dir, transform=None):
         self.paths = []
@@ -55,38 +48,55 @@ class DatasetImages(data.Dataset):
         return len(self.paths)
 
 
-# TODO @grigorybartosh
-class DatasetText(data.Dataset):
+class DatasetTextCOCO(data.Dataset):
     def __init__(self, captions_path):
-        pass
+        self.coco = COCO(captions_path)
+        self.ids = list(self.coco.anns.keys())
 
     def __getitem__(self, index):
-        pass
+        coco = self.coco
+        ann_id = self.ids[index]
+        caption = coco.anns[ann_id]['caption']
+
+        return caption
 
     def __len__(self):
-        pass
+        return len(self.ids)
 
 
-# TODO @grigorybartosh
-class DatasetVK(data.Dataset):
-    def __init__(self, imgs_dir, captions_path, image_transform=None):
-        pass
+class DatasetTextSampler(data.Dataset):
+    def __init__(self, dataset, image_size):
+        self.dataset = dataset
+        self.image_size = image_size
+
+    def _sample_params(self):
+        return np.random.uniform(-1, 1, 8).tolist()
 
     def __getitem__(self, index):
-        pass
+        text = self.dataset[index]
+        params = self._sample_params()
+        image, _ = simple_stacker.stack(text, self.image_size)
+        image_t, bounding_boxes = simple_stacker.stack(text, self.image_size, *params[:5])
+
+        image = torch.tensor(image, dtype=torch.float32)
+        image_t = torch.tensor(image_t, dtype=torch.float32)
+        params = torch.tensor(params, dtype=torch.float32)
+        bounding_boxes = bounding_boxes # TODO
+
+        return text, image, image_t, params, bounding_boxes
 
     def __len__(self):
-        pass
+        return len(self.dataset)
 
 
-def get_image_transform():
+def get_image_transform(image_size):
     normalize = transforms.Normalize(
-        mean=[0.5, 0.5, 0.5],
+        mean=[0.5, 0.5, 0.5], 
         std=[0.5, 0.5, 0.5]
     )
 
     return transforms.Compose([
-        transforms.Resize((256, 256)),
+        transforms.Resize((image_size, image_size)),
         transforms.ToTensor(),
         normalize,
     ])
@@ -97,18 +107,24 @@ def collate_images(images):
     return images
 
 
-def collate_texts(texts):
-    # TODO @iisuslik43 @grigorybartosh
-    return texts
+def collate_params(params):
+    params = torch.stack(params, 0)
+    return params
 
 
-def collate_parallel(data):
-    images, captions = zip(*data)
+def collate_bounding_boxes(bounding_boxes): # TODO
+    return bounding_boxes
 
-    images = collate_images(images)
-    captions = collate_texts(captions)
 
-    return images, captions
+def collate_texts(data):
+    texts, x_t, x_tp, x_p, x_bb = zip(*data)
+
+    x_t = collate_images(x_t)
+    x_tp = collate_images(x_tp)
+    x_p = collate_params(x_p)
+    x_bb = collate_bounding_boxes(x_bb)
+
+    return texts, x_t, x_tp, x_p, x_bb
 
 
 def infinit_data_loader(data_loader):
@@ -122,73 +138,39 @@ def union_data_loaders(data_loader_a, data_loader_b):
         yield a, b
 
 
-def get_data_loader_images(dataset_name, sset, transform, batch_size, shuffle, num_workers):
-    assert dataset_name in PATH['DATASETS'], f"Unknown dataset_name value '{dataset_name}'"
+def get_loader(sset='VAL', image_transform=None, image_size=256, 
+               batch_size=16, shuffle=False, num_workers=8):
+    if image_transform is None:
+        image_transform = get_image_transform(image_size)
 
     dataset_images = DatasetImages(
-        imgs_dir=PATH['DATASETS'][dataset_name][sset]['IMAGES_DIR'],
-        transform=transform
+        imgs_dir=PATH['DATASETS']['COCO'][sset]['IMAGES_DIR'],
+        transform=image_transform
+    )
+    dataset_texts = DatasetTextSampler(
+        DatasetTextCOCO(captions_path=PATH['DATASETS']['COCO'][sset]['CAPTIONS']),
+        image_size
     )
 
     data_loader_images = data.DataLoader(
         dataset=dataset_images,
         batch_size=batch_size,
         shuffle=shuffle,
-        num_workers=num_workers,
+        num_workers=max(1, num_workers // 2),
         collate_fn=collate_images,
         drop_last=True
     )
+    data_loader_texts = data.DataLoader(
+        dataset=dataset_texts,
+        batch_size=batch_size,
+        shuffle=shuffle,
+        num_workers=max(1, num_workers // 2),
+        collate_fn=collate_texts,
+        drop_last=True
+    )
 
-    return infinit_data_loader(data_loader_images)
-
-
-# TODO @grigorybartosh
-def get_data_loader_texts(dataset_name, sset, batch_size, shuffle, num_workers):
-    pass
-
-
-# TODO @grigorybartosh
-def get_data_loader_parallel(
-    dataset_name, sset, image_transform, batch_size, shuffle, num_workers):
-    pass
-
-
-def get_loader(dataset_images_name=None, dataset_texts_name=None,
-               dataset_parallel_name=None,
-               sset='VAL', image_transform=None, batch_size=16, shuffle=False, num_workers=8):
-    if image_transform is None:
-        image_transform = get_image_transform()
-
-    if dataset_images_name or dataset_texts_name:
-        data_loader_images = get_data_loader_images(
-            dataset_images_name,
-            sset,
-            image_transform,
-            batch_size,
-            shuffle,
-            max(1, num_workers // 2) if dataset_texts_name else num_workers
-        )
-
-        data_loader_texts = get_data_loader_texts(
-            dataset_texts_name,
-            sset,
-            batch_size,
-            shuffle,
-            max(1, num_workers // 2) if dataset_images_name else num_workers
-        )
-
-        data_loader = union_data_loaders(data_loader_images, data_loader_texts)
-
-    if dataset_parallel_name:
-        data_loader_parallel = get_data_loader_parallel(
-            dataset_parallel_name,
-            sset,
-            image_transform,
-            batch_size,
-            shuffle,
-            num_workers
-        )
-
-        data_loader = data_loader_parallel
+    data_loader_images = infinit_data_loader(data_loader_images)
+    data_loader_texts = infinit_data_loader(data_loader_texts)
+    data_loader = union_data_loaders(data_loader_images, data_loader_texts)
 
     return data_loader

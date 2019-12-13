@@ -2,31 +2,29 @@ import torch
 import torch.nn as nn
 
 __all__ = [
-    'TextParamsCorrectLoss', 'TextParamsVarLoss', 
+    'StackerLoss',
+    'TextParamsKLLoss',
     'OCRLoss'
 ]
 
 
-# TODO @iisuslik43
-class TextParamsCorrectLoss(nn.Module):
+class StackerLoss(nn.Module):
     def __init__(self):
-        super(TextParamsCorrectLoss, self).__init__()
+        super(StackerLoss, self).__init__()
 
-    def forward(self, x_t_param):
-        pass
+    def forward(self, x, target):
+        return ((x - target) ** 2).mean()
 
 
-# TODO @iisuslik43
-class TextParamsVarLoss(nn.Module):
+class TextParamsKLLoss(nn.Module):
     def __init__(self):
-        super(TextParamsVarLoss, self).__init__()
+        super(TextParamsKLLoss, self).__init__()
 
-    def forward(self, x_t_param):
-        pass
+    def forward(self, mu, logvar):
+        return -0.5 * torch.sum(1 + logvar - mu ** 2 - logvar.exp())
 
 
-# TODO @grigorybartosh
-class OCRLoss(nn.Module):
+class OCRLoss(nn.Module): # TODO
     def __init__(self):
         super(OCRLoss, self).__init__()
 

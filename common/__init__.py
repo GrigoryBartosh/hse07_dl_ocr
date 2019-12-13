@@ -1,1 +1,1 @@
-__all__ = ['losses', 'metrics', 'config', 'data_loading', 'logging', 'model', 'utils']
+__all__ = ['losses', 'config', 'data_loading', 'logging', 'model', 'simple_stacker', 'utils']

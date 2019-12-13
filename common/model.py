@@ -39,7 +39,14 @@ class FullModelWrapper():
         self.stacker_type = Stacker if args['stacker'] else None
         self.ocr_type = OCR if args['ocr'] else None
 
-        self.model_names = ['gen', 'stacker', 'ocr']
+        self.stacker, self.stacker_params = load_model(
+            self.stacker_type,
+            os.path.join(self.path, 'stacker' + MODEL_STATE_EXT),
+            device=device
+        )
+        self.stacker.eval()
+
+        self.model_names = ['gen', 'ocr']
 
         for model_name in self.model_names:
             ldict = {'self': self}
@@ -62,19 +69,13 @@ class FullModelWrapper():
             exec(f'self.{model_name}_params = model_params', {}, ldict)
             exec(f'self.{model_name} = model', {}, ldict)
 
-    def _apply(self, foo):
-        for model_name in self.model_names:
+    def _apply(self, foo, model_names):
+        for model_name in model_names:
             ldict = {'self': self}
             exec(f'model = self.{model_name}', {}, ldict)
             exec(f'model_params = self.{model_name}_params', {}, ldict)
             if ldict['model']:
                 foo(ldict['model'], ldict['model_params'], model_name)
-
-    def get_all_models(self):
-        models = []
-        foo = lambda model, params, name: models.append(model)
-        self._apply(foo)
-        return models
 
     def save(self):
         utils.remove_dir(self.path)
@@ -84,16 +85,16 @@ class FullModelWrapper():
                 os.path.join(self.path, name + MODEL_STATE_EXT),
                 params
             )
-        self._apply(foo)
+        self._apply(foo, self.model_names + ['stacker'])
 
     def to(self, device):
         foo = lambda model, params, name: model.to(device)
-        self._apply(foo)
+        self._apply(foo, self.model_names + ['stacker'])
 
     def train(self):
         foo = lambda model, params, name: model.train()
-        self._apply(foo)
+        self._apply(foo, self.model_names)
 
     def eval(self):
         foo = lambda model, params, name: model.eval()
-        self._apply(foo)
+        self._apply(foo, self.model_names)
