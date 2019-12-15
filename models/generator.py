@@ -116,7 +116,7 @@ class Generator(nn.Module):
 
         x = torch.cat((x_i, x_t), 1)
         x = self.mlp(x)
-        
+
         mu, logvar = x[:self.params_count], x[self.params_count:]
         x = self.reparameterize(mu, logvar)
         x = self.tanh(x)

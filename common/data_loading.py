@@ -94,7 +94,7 @@ class DatasetTextSampler(data.Dataset):
 
         image_t, bboxes, labels = simple_stacker.stack(
             text,
-            self.image_size, 
+            self.image_size,
             *params[:self.params_move_count]
         )
         bboxes = torch.tensor(bboxes, dtype=torch.float32)
@@ -113,7 +113,7 @@ class DatasetTextSampler(data.Dataset):
 
 def get_image_transform(image_size):
     normalize = transforms.Normalize(
-        mean=[0.5, 0.5, 0.5], 
+        mean=[0.5, 0.5, 0.5],
         std=[0.5, 0.5, 0.5]
     )
 

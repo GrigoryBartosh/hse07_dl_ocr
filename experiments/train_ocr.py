@@ -208,7 +208,7 @@ class Trainer():
         else:
             self.optimizer_ocr.zero_grad()
             loss_ocr_detecet = self.calc_losses_no_gen(
-                x_i, 
+                x_i,
                 x_t_p,
                 x_t_params[:, self.args['params_move_count']:],
                 x_t_bb,

@@ -263,7 +263,7 @@ class Mover(nn.Module):
             layer_sizes,
             args['encoder']['activ']
         )
-        
+
         planes = 64 * 2 ** (len(layer_sizes) - 1)
 
         self.decoder = Decoder(
@@ -307,14 +307,14 @@ class Stacker(nn.Module):
         self.mover = Mover(args)
 
     def move(self, x_t, x_params_move):
-    	return self.mover(x_t, x_params_move)
+        return self.mover(x_t, x_params_move)
 
     def stack(self, x_i, x_t, x_rgb):
-    	x_t = x_t[:, None, :, :]
-    	x_rgb = x_rgb[:, :, None, None]
-    	return x_i * (1 - x_t) + x_rgb * x_t
+        x_t = x_t[:, None, :, :]
+        x_rgb = x_rgb[:, :, None, None]
+        return x_i * (1 - x_t) + x_rgb * x_t
 
     def forward(self, x_i, x_t, x_params):
-    	x_params_move, x_rgb = x_params[:, :5], x_params[:, 5:]
-    	x_t = self.move(x_t, x_params_move)
-    	return stack(x_i, x_t, x_rgb)
+        x_params_move, x_rgb = x_params[:, :5], x_params[:, 5:]
+        x_t = self.move(x_t, x_params_move)
+        return stack(x_i, x_t, x_rgb)
