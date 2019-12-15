@@ -18,6 +18,9 @@ PATH = {
             }
         }
     },
+    'FONTS': {
+        'LOBSTER': os.path.join(ROOT_DIR, 'data', 'fonts', '3952.ttf')
+    },
     'TF_LOGS': os.path.join(ROOT_DIR, 'data', 'logs_tf'),
     'MODELS': {
         'HARDTEXT_DIR': os.path.join(ROOT_DIR, 'data', 'models', 'hardtext'),

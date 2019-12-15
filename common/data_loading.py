@@ -9,6 +9,7 @@ from PIL import Image
 from pycocotools.coco import COCO
 
 import common.simple_stacker as simple_stacker
+import common.utils as utils
 from common.config import PATH
 
 __all__ = ['get_loader']
@@ -65,25 +66,46 @@ class DatasetTextCOCO(data.Dataset):
 
 
 class DatasetTextSampler(data.Dataset):
-    def __init__(self, dataset, image_size):
+    def __init__(self, dataset, image_size, params_count, params_move_count):
         self.dataset = dataset
         self.image_size = image_size
+        self.params_count = params_count
+        self.params_move_count = params_move_count
+
+        self.box_encoder = utils.BoxEncoder()
 
     def _sample_params(self):
-        return np.random.uniform(-1, 1, 8).tolist()
+        return np.random.uniform(-1, 1, self.params_count).tolist()
+
+    def _sample_text(self, text):
+        text = ''.join([c for c in text if utils.is_char_valid(c) or c == ' '])
+        text = text.split()
+        n = np.random.randint(1, min(6, len(text) + 1))
+        l = np.random.randint(0, len(text) - n + 1)
+        text = ' '.join(text[l:l + n])
+        return text
 
     def __getitem__(self, index):
-        text = self.dataset[index]
+        text = self._sample_text(self.dataset[index])
+
         params = self._sample_params()
-        image, _ = simple_stacker.stack(text, self.image_size)
-        image_t, bounding_boxes = simple_stacker.stack(text, self.image_size, *params[:5])
+
+        image, _, _ = simple_stacker.stack(text, self.image_size)
+
+        image_t, bboxes, labels = simple_stacker.stack(
+            text,
+            self.image_size, 
+            *params[:self.params_move_count]
+        )
+        bboxes = torch.tensor(bboxes, dtype=torch.float32)
+        labels = torch.LongTensor(labels)
+        bboxes, labels = self.box_encoder.encode(bboxes, labels)
 
         image = torch.tensor(image, dtype=torch.float32)
         image_t = torch.tensor(image_t, dtype=torch.float32)
         params = torch.tensor(params, dtype=torch.float32)
-        bounding_boxes = bounding_boxes # TODO
 
-        return text, image, image_t, params, bounding_boxes
+        return text, image, image_t, params, bboxes, labels
 
     def __len__(self):
         return len(self.dataset)
@@ -112,19 +134,21 @@ def collate_params(params):
     return params
 
 
-def collate_bounding_boxes(bounding_boxes): # TODO
-    return bounding_boxes
+def collate_bounding_boxes(bboxes):
+    bboxes = torch.stack(bboxes, 0)
+    return bboxes
 
 
 def collate_texts(data):
-    texts, x_t, x_tp, x_p, x_bb = zip(*data)
+    texts, x_t, x_tp, x_p, x_bb, x_l = zip(*data)
 
-    x_t = collate_images(x_t)
-    x_tp = collate_images(x_tp)
-    x_p = collate_params(x_p)
-    x_bb = collate_bounding_boxes(x_bb)
+    x_t = torch.stack(x_t)
+    x_tp = torch.stack(x_tp)
+    x_p = torch.stack(x_p)
+    x_bb = torch.stack(x_bb)
+    x_l = torch.stack(x_l)
 
-    return texts, x_t, x_tp, x_p, x_bb
+    return texts, x_t, x_tp, x_p, x_bb, x_l
 
 
 def infinit_data_loader(data_loader):
@@ -138,7 +162,8 @@ def union_data_loaders(data_loader_a, data_loader_b):
         yield a, b
 
 
-def get_loader(sset='VAL', image_transform=None, image_size=256, 
+def get_loader(sset='VAL', image_transform=None, image_size=256,
+               params_count=8, params_move_count=5,
                batch_size=16, shuffle=False, num_workers=8):
     if image_transform is None:
         image_transform = get_image_transform(image_size)
@@ -149,7 +174,9 @@ def get_loader(sset='VAL', image_transform=None, image_size=256,
     )
     dataset_texts = DatasetTextSampler(
         DatasetTextCOCO(captions_path=PATH['DATASETS']['COCO'][sset]['CAPTIONS']),
-        image_size
+        image_size,
+        params_count,
+        params_move_count
     )
 
     data_loader_images = data.DataLoader(

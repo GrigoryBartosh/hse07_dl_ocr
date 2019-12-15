@@ -6,6 +6,7 @@ import torch
 import torch.optim as optim
 
 from common.config import PATH
+import common.utils as utils
 from common.data_loading import get_loader
 import common.logging as logging
 from common.model import FullModelWrapper
@@ -14,7 +15,9 @@ import common.simple_stacker as simple_stacker
 
 import common.losses as losses
 
-image_size = 128
+image_size = 300
+params_count = 8
+params_move_count = 5
 args = {
     'load_model': False,
     'requires_grad': {
@@ -43,14 +46,17 @@ args = {
                 'layers': [2, 2, 2, 2],
                 'activ': 'lrelu'
             },
-            'params_move_count': 5
+            'params_move_count': params_move_count
         },
-        'ocr': { # TODO
-            True
+        'ocr': {
+            'backbone': 'resnet18',
+            'label_num': utils.labels_count()
         }
     },
-    'train': {
+    'train': { # TODO
         'image_size': image_size,
+        'params_count': params_count,
+        'params_move_count': params_move_count,
         'use_gen': True,
         'save_iter': 10000,
         'val_iter': 100000,
@@ -76,6 +82,8 @@ class Trainer():
         self.args = args
         self.device = device
         self.summary_writer = summary_writer
+
+        self.box_encoder = utils.BoxEncoder()
 
         self.criterion_gen_kl = losses.TextParamsKLLoss()
         self.criterion_ocr_detect = losses.OCRLoss()
@@ -123,55 +131,66 @@ class Trainer():
         )
         self.summary_writer.add_image(f'{phase}_gen', img_grid, n_iter)
 
-    def get_bounding_boxes(texts, x_params):
-        move_params = x_params.cpu().detach().numpy()[:, :5]
+    def get_bboxes(self, texts, params):
+        move_params = params.cpu().detach().numpy()[:, :self.args['params_move_count']]
         n = self.args['parallel_process']
         with mp.Pool(n) as pool:
-            bounding_boxes = pool.map(
-                lambda t, p: simple_stacker.stack(t, self.args['image_size'], *p)[1],
+            bboxes_labels = pool.map(
+                lambda t, p: simple_stacker.stack(t, self.args['image_size'], *p)[1:],
                 zip(texts, move_params)
             )
 
-        bounding_boxes = bounding_boxes # TODO
-        # bounding_boxes.to(self.devise)
-        return bounding_boxes
+        bboxes, labels = [], []
+        bboxes_labels = list(map(self.box_encoder.encode, zip(*bboxes_labels)))
+        for bb, l in zip(*bboxes_labels):
+            bb = torch.tensor(bb, dtype=torch.float32).to(self.device)
+            l = torch.LongTensor(l).to(self.device)
+            bb, l = self.box_encoder.encode(bb, l)
+            bboxes.append(bb)
+            labels.append(l)
+
+        bboxes = torch.stack(bboxes)
+        labels = torch.stack(labels)
+
+        return bboxes, labels
 
     def calc_losses_gen(self, x_i, x_t, text):
         x_t_param, x_t_param_mu, x_t_param_logvar = self.model.gen(x_i, x_t)
 
         x_i_out = self.model.staсker(x_i, x_t, x_t_param)
-        x_bb = self.get_bounding_boxes(text, x_t_param)
+        x_bb, x_l = self.get_bboxes(text, x_t_param)
 
-        x_bb_out = self.model.ocr(x_i_out)
+        x_bb_p, x_l_p = self.model.ocr(x_i_out)
 
         loss_gen_kl = self.criterion_gen_kl(x_t_param_mu, x_t_param_logvar)
 
-        loss_ocr_detecet = self.criterion_ocr_detect(x_bb_out, x_bb)
+        loss_ocr_detecet = self.criterion_ocr_detect(x_bb_p, x_l_p, x_bb, x_l)
 
         return loss_gen_kl, loss_ocr_detecet
 
-    def calc_losses_no_gen(self, x_i, x_t, x_rgb, x_bb):
+    def calc_losses_no_gen(self, x_i, x_t, x_rgb, x_bb, x_l):
         x_i = self.model.staсker.stack(x_i, x_t, x_rgb)
 
-        x_bb_out = self.model.ocr(x_bb_out, x_bb)
+        x_bb_p, x_l_p = self.model.ocr(x_bb_out, x_bb)
 
-        loss_ocr_detecet = self.criterion_ocr_detect(x_i, x_bb)
+        loss_ocr_detecet = self.criterion_ocr_detect(x_bb_p, x_l_p, x_bb, x_l)
 
         return loss_ocr_detecet
 
     def step(self, batch, n_iter):
-        x_i, (texts, x_t, x_t_p, x_t_params, x_t_bb) = batch
+        x_i, (texts, x_t, x_t_p, x_t_params, x_t_bb, x_t_l) = batch
 
         x_i = x_i.to(self.device)
         x_t = x_t.to(self.device)
         x_t_p = x_t_p.to(self.device)
         x_t_params = x_t_params.to(self.device)
-        x_t_bb = x_t_bb # TODO
+        x_t_bb = x_t_bb.to(self.device)
+        x_t_l = x_t_l.to(self.device)
 
         if self.args['use_gen']:
             self.optimizer_gen.zero_grad()
             loss_gen_kl, loss_ocr_detecet = self.calc_losses_gen(x_i, x_t, text)
-            loss_ocr_detecet = loss_ocr_detecet # TODO
+            loss_ocr_detecet = -loss_ocr_detecet
             loss_total = loss_gen_kl + loss_ocr_detecet
             gen_losses = [loss_gen_kl.item(), loss_ocr_detecet.item(), loss_total.item()]
             loss_total.backward()
@@ -188,7 +207,13 @@ class Trainer():
             self.log_ocr_losses('Train', ocr_losses, n_iter)
         else:
             self.optimizer_ocr.zero_grad()
-            loss_ocr_detecet = self.calc_losses_no_gen(x_i, x_t_p, x_t_params[:, 5:], x_t_bb)
+            loss_ocr_detecet = self.calc_losses_no_gen(
+                x_i, 
+                x_t_p,
+                x_t_params[:, self.args['params_move_count']:],
+                x_t_bb,
+                x_t_l
+            )
             loss_total = loss_ocr_detecet
             ocr_losses = [loss_ocr_detecet.item(), loss_total.item()]
             loss_total.backward()
@@ -197,16 +222,23 @@ class Trainer():
             self.log_ocr_losses('Train', ocr_losses, n_iter)
 
     def eval(self, batch, train_n_iter, val_n_iter):
-        x_i, (texts, x_t, x_t_p, x_t_params, x_t_bb) = batch
+        x_i, (texts, x_t, x_t_p, x_t_params, x_t_bb, x_t_l) = batch
 
         x_i = x_i.to(self.device)
         x_t = x_t.to(self.device)
         x_t_p = x_t_p.to(self.device)
         x_t_params = x_t_params.to(self.device)
-        x_t_bb = x_t_bb # TODO
+        x_t_bb = x_t_bb.to(self.device)
+        x_t_l = x_t_l.to(self.device)
 
         with torch.no_grad():
-            loss_ocr_detecet = self.calc_losses_no_gen(x_i, x_t_p, x_t_params[:, 5:], x_t_bb)
+            loss_ocr_detecet = self.calc_losses_no_gen(
+                x_i,
+                x_t_p,
+                x_t_params[:, self.args['params_move_count']:],
+                x_t_bb,
+                x_t_l
+            )
             loss_total = loss_ocr_detecet
             losses = [loss_ocr_detecet.item(), loss_total.item()]
 
@@ -255,6 +287,7 @@ if __name__ == '__main__':
     model.to(device)
 
     summary_writer = logging.get_summary_writer()
+    utils.write_arguments(summary_writer, args)
 
     trainer = Trainer(model, args['train'], device, summary_writer)
 

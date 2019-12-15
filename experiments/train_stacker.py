@@ -7,6 +7,7 @@ import torch.optim as optim
 import torchvision
 
 from common.config import PATH
+import common.utils as utils
 from common.data_loading import get_loader
 import common.logging as logging
 from common.model import save_model, load_model
@@ -20,7 +21,9 @@ STACKER_NAME = 'stacker'
 MODEL_STATE_EXT = '.pth'
 STACKER_PATH = os.path.join(ALL_MODEL_DIR, STACKER_NAME + MODEL_STATE_EXT)
 
-image_size = 128
+image_size = 300
+params_count = 8
+params_move_count = 5
 args = {
     'load_model': False,
     'model': {
@@ -34,10 +37,12 @@ args = {
             'layers': [2, 2, 2, 2],
             'activ': 'lrelu'
         },
-        'params_move_count': 5
+        'params_move_count': params_move_count
     },
     'train': { # TODO
         'image_size': image_size,
+        'params_count': params_count,
+        'params_move_count': params_move_count,
         'save_iter': 10000,
         'val_iter': 10,
         'val_iter_count': 10,
@@ -102,8 +107,8 @@ class Trainer():
         return losses, loss_total
 
     def step(self, batch, n_iter):
-        _, (_, x, target, params, _) = batch
-        params_move = params[:, :5]
+        _, (_, x, target, params, _, _) = batch
+        params_move = params[:, :self.args['params_move_count']]
 
         x = x.to(self.device)
         params_move = params_move.to(self.device)
@@ -117,8 +122,8 @@ class Trainer():
         self.log_losses('Train', losses, n_iter)
 
     def eval(self, batch, train_n_iter, val_n_iter):
-        _, (_, x, target, params, _) = batch
-        params_move = params[:, :5]
+        _, (_, x, target, params, _, _) = batch
+        params_move = params[:, :self.args['params_move_count']]
 
         x = x.to(self.device)
         params_move = params_move.to(self.device)
@@ -169,6 +174,7 @@ if __name__ == '__main__':
     model.to(device)
 
     summary_writer = logging.get_summary_writer()
+    utils.write_arguments(summary_writer, args)
 
     trainer = Trainer(model, args['train'], device, summary_writer)
 
