@@ -138,6 +138,8 @@ def stack(text, size, angle=0, ratio=0, scale=0, shift_x=0, shift_y=0):
     pillowImage = center_crop(pillowImage, size)
 
     bbs, label = build_bb(text, size, x1, y1, angle, ratio, font1, l, shift_x, shift_y)
+    bbs = np.array(bbs)
+    label = np.array(label)
 
     img = (np.asarray(pillowImage) - 128.) / 128.
 

@@ -59,11 +59,11 @@ args = {
         'image_size': image_size,
         'params_count': params_count,
         'params_move_count': params_move_count,
-        'use_gen': True,
+        'use_gen': False,
         'save_iter': 10000,
-        'val_iter': 32,
-        'val_iter_count': 32,
-        'batch_size': 32, # TODO
+        'val_iter': 4,
+        'val_iter_count': 4,
+        'batch_size': 4, # TODO
         'num_workers': 16,
         'lr': 0.0001,
         'w_l2_norm': 0,
@@ -123,24 +123,40 @@ class Trainer():
         self.summary_writer.add_scalar(
             f'{phase}/total', losses[1], n_iter)
 
-    def log_images(self, phase, x_i, x_t, n_iter):
+    def log_images(self, phase, x_i, x_t, x_t_params, n_iter):
         n = self.args['log_images_count']
-        x_i, x_t = x_i[:n], x_t[:n]
+        x_i, x_t, x_t_params = x_i[:n], x_t[:n], x_t_params[:n]
 
-        x_t_param, _, _ = self.model.gen(x_i, x_t)
+        if self.args['use_gen']:
+            x_t_params, _, _ = self.model.gen(x_i, x_t)
 
-        x_i_out = self.model.stacker(x_i, x_t, x_t_param)
+        x_i_out = self.model.stacker(x_i, x_t, x_t_params)
+
+        x_bb_p, x_l_p = self.model.ocr(x_i_out)
+        out = self.box_encoder.decode_batch(x_bb_p, x_l_p)
+
+        img_bb = []
+        for (bboxes, labels, scores), img in zip(out, x_i_out):
+            bboxes = bboxes.cpu().numpy()
+            labels = labels.cpu().numpy()
+            scores = scores.cpu().numpy()
+            ids = scores > 0
+            bboxes, labels, scores = bboxes[ids], labels[ids], scores[ids]
+            img = img.cpu().numpy()
+            img = (img.transpose(1, 2, 0) + 1) / 2
+            img = utils.draw_patches(img, bboxes, labels, scores=scores,
+                                     order='ltrb', label_map=utils.label_to_char)
+            img = (img.transpose(2, 0, 1) - 128.) / 128.
+            img_bb.append(torch.tensor(img, dtype=torch.float32))
+        img_bb = torch.stack(img_bb)
 
         x_t = x_t[:, None, :, :].expand(-1, 3, -1, -1)
         img_grid = torchvision.utils.make_grid(
-            torch.cat((x_i, x_t, x_i_out)),
+            torch.cat((x_i, x_t, x_i_out, img_bb)),
             normalize=True,
             nrow=x_i.size(0)
         )
         self.summary_writer.add_image(f'{phase}_gen', img_grid, n_iter)
-
-    def get_bboxes_single(self, text, params):
-        return simple_stacker.stack(t, self.args['image_size'], *p)[1:]
 
     def get_bboxes(self, texts, params):
         move_params = params.cpu().detach().numpy()[:, :self.args['params_move_count']]
@@ -250,19 +266,18 @@ class Trainer():
             loss_total = loss_ocr_detecet
             losses = [loss_ocr_detecet.item(), loss_total.item()]
 
-        self.all_val_ocr_losses += [losses]
+            self.all_val_ocr_losses += [losses]
 
-        if val_n_iter >= self.args['val_iter_count']:
-            self.log_ocr_losses(
-                'Validation',
-                np.stack(self.all_val_ocr_losses, axis=1).mean(axis=1),
-                train_n_iter
-            )
+            if val_n_iter >= self.args['val_iter_count']:
+                self.log_ocr_losses(
+                    'Validation',
+                    np.stack(self.all_val_ocr_losses, axis=1).mean(axis=1),
+                    train_n_iter
+                )
 
-            self.all_val_ocr_losses = []
+                self.all_val_ocr_losses = []
 
-            if self.args['use_gen']:
-                self.log_images('Validation', x_i, x_t, train_n_iter)
+                self.log_images('Validation', x_i, x_t, x_t_params, train_n_iter)
 
 
 if __name__ == '__main__':

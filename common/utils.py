@@ -3,6 +3,10 @@ import json
 import shutil
 import itertools
 
+import matplotlib.pyplot as plt
+import matplotlib.patches as patches
+from PIL import Image
+
 import numpy as np
 
 import torch
@@ -58,7 +62,7 @@ def char_to_label(c):
 
 def label_to_char(c):
     if c >= 1 and c <= 26:
-        return c - 1 + 'A'
+        return chr(c - 1 + ord('A'))    
     if c >= 27 and c <= 52:
         return chr(c - 27 + ord('a'))
     if c >= 53 and c <= 62:
@@ -208,8 +212,6 @@ class BoxEncoder():
         bboxes_in[:, :, :2] = self.scale_xy * bboxes_in[:, :, :2]
         bboxes_in[:, :, 2:] = self.scale_wh * bboxes_in[:, :, 2:]
 
-        print(self.dboxes_xywh.shape)
-        print(bboxes_in.shape)
         bboxes_in[:, :, :2] = bboxes_in[:, :, :2] * self.dboxes_xywh[:, :, 2:] + self.dboxes_xywh[:, :, :2]
         bboxes_in[:, :, 2:] = bboxes_in[:, :, 2:].exp() * self.dboxes_xywh[:, :, 2:]
 
@@ -277,3 +279,79 @@ class BoxEncoder():
         _, max_ids = scores_out.sort(dim=0)
         max_ids = max_ids[-max_output:]
         return bboxes_out[max_ids, :], labels_out[max_ids], scores_out[max_ids]
+
+
+def fig2data(fig):
+    fig.canvas.draw()
+
+    w, h = fig.canvas.get_width_height()
+    buf = np.fromstring(fig.canvas.tostring_argb(), dtype=np.uint8)
+    buf.shape = (w, h, 4)
+ 
+    buf = np.roll(buf, 3, axis=2)
+    return buf
+
+
+def fig2img(fig):
+    buf = fig2data(fig)
+    w, h, d = buf.shape
+    return Image.frombytes("RGBA", (w ,h), buf.tostring())
+
+
+def fig2arr(fig, w, h, c):
+    img = fig2img(fig)
+    arr = np.asarray(img)
+    aw, ah, _ = arr.shape
+    pad_x, pad_y = (aw - h) // 2, (ah - h) // 2
+    arr = arr[pad_x:-pad_x, pad_y:-pad_y, :c]
+    return arr
+
+
+def draw_patches(img, bboxes, labels, scores=None, order="xywh", label_map={}): # TODO check output
+    plt.imshow(img)
+    plt.axis('off')
+    ax = plt.gca()
+
+    img_w, img_h, img_c = img.shape
+
+    if len(bboxes) > 0:
+        if order == "ltrb":
+            xmin, ymin, xmax, ymax = bboxes[:, 0],  bboxes[:, 1],  bboxes[:, 2],  bboxes[:, 3]
+            cx, cy, w, h = (xmin + xmax) / 2, (ymin + ymax) / 2, xmax - xmin, ymax - ymin
+        else:
+            cx, cy, w, h = bboxes[:, 0],  bboxes[:, 1],  bboxes[:, 2],  bboxes[:, 3]
+
+        htot, wtot, _ = img.shape
+        cx *= wtot
+        cy *= htot
+        w *= wtot
+        h *= htot
+
+        bboxes = zip(cx, cy, w, h)
+
+        scores = scores if scores is not None else [None] * len(labels)
+        for (cx, cy, w, h), label, score in zip(bboxes, labels, scores):
+            if label == 0:
+                continue
+
+            print(label)
+            label = label_map(label)
+            print(label)
+            score = round(score, 2) if score is not None else None
+            text = '{}: {:.4}'.format(label, score) if score is not None else label
+
+            ax.add_patch(patches.Rectangle(
+                (cx - 0.5 * w, cy - 0.5 * h),
+                w, h, fill=False, color='r')
+            )
+            ax.text(
+                cx - 0.5 * w, cy - 0.5 * h, text,
+                ha='center', va='center', size=7,
+                bbox=dict(boxstyle='round', fc='y', ec='0.5', alpha=0.3)
+            )
+
+    arr = fig2arr(plt.gcf(), img_w, img_h, img_c)
+    plt.cla()
+    plt.clf()
+
+    return arr

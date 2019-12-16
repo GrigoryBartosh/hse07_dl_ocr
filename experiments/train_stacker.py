@@ -79,7 +79,7 @@ class Trainer():
         self.summary_writer.add_scalar(
             f'{phase}/total', losses[1], n_iter)
 
-    def log_images(self, phase, x, target, params_move, n_iter): # TODO check same out
+    def log_images(self, phase, x, target, params_move, n_iter):
         n = self.args['log_images_count']
         x, target, params_move = x[:n], target[:n], params_move[:n]
 
@@ -133,18 +133,18 @@ class Trainer():
         with torch.no_grad():
             losses, _ = self.calc_losses(x, params_move, target)
 
-        self.all_val_losses += [losses]
+            self.all_val_losses += [losses]
 
-        if val_n_iter >= self.args['val_iter_count']:
-            self.log_losses(
-                'Validation',
-                np.stack(self.all_val_losses, axis=1).mean(axis=1),
-                train_n_iter
-            )
+            if val_n_iter >= self.args['val_iter_count']:
+                self.log_losses(
+                    'Validation',
+                    np.stack(self.all_val_losses, axis=1).mean(axis=1),
+                    train_n_iter
+                )
 
-            self.all_val_losses = []
+                self.all_val_losses = []
 
-            self.log_images('Validation', x, target, params_move, train_n_iter)
+                self.log_images('Validation', x, target, params_move, train_n_iter)
 
 
 if __name__ == '__main__':

@@ -117,7 +117,7 @@ class OCR(nn.Module):
 
         self.ssd = SSD300(
             ResNet(backbone=args['backbone']),
-            args['label_num']
+            label_num=args['label_num']
         )
 
     def forward(self, x):
