@@ -212,8 +212,10 @@ class Encoder(nn.Module):
 
 
 class Decoder(nn.Module):
-    def __init__(self, block, layer_sizes, in_planes=512, start_planes=512, activ='lrelu'):
+    def __init__(self, image_size, block, layer_sizes, in_planes=512, start_planes=512, activ='lrelu'):
         super(Decoder, self).__init__()
+
+        self.image_size = image_size
 
         layers = [self._make_layer(block, in_planes, start_planes // 2, 2, layer_sizes[0], activ)]
         in_planes = start_planes // 2
@@ -250,6 +252,9 @@ class Decoder(nn.Module):
         x = self.conv2(x)
         x = self.activ2(x)
 
+        pad = (x.size(2) - self.image_size) // 2
+        x = x[:, :, pad:-pad, pad:-pad]
+
         return x
 
 
@@ -267,6 +272,7 @@ class Mover(nn.Module):
         planes = 64 * 2 ** (len(layer_sizes) - 1)
 
         self.decoder = Decoder(
+            args['decoder']['image_size'],
             self.get_block_by_name(args['decoder']['block']),
             args['decoder']['layers'],
             planes + args['params_move_count'],
@@ -314,7 +320,7 @@ class Stacker(nn.Module):
         x_rgb = x_rgb[:, :, None, None]
         return x_i * (1 - x_t) + x_rgb * x_t
 
-    def forward(self, x_i, x_t, x_params):
+    def forward(self, x_i, x_t, x_params): # TODO check output
         x_params_move, x_rgb = x_params[:, :5], x_params[:, 5:]
         x_t = self.move(x_t, x_params_move)
-        return stack(x_i, x_t, x_rgb)
+        return self.stack(x_i, x_t, x_rgb)

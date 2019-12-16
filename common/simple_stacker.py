@@ -108,6 +108,7 @@ def build_bb(text, size, x, y, angle, ratio, font1, l, shift_x, shift_y):
     return ans, label
 
 def stack(text, size, angle=0, ratio=0, scale=0, shift_x=0, shift_y=0):
+    scale = (scale + 1.) / 2
     ratio = MAX_RATIO ** ratio
 
     angle_rad = angle * np.pi
@@ -138,4 +139,6 @@ def stack(text, size, angle=0, ratio=0, scale=0, shift_x=0, shift_y=0):
 
     bbs, label = build_bb(text, size, x1, y1, angle, ratio, font1, l, shift_x, shift_y)
 
-    return (np.asarray(pillowImage) - 128) / 128., bbs, label
+    img = (np.asarray(pillowImage) - 128.) / 128.
+
+    return img, bbs, label

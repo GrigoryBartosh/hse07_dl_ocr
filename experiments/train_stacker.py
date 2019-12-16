@@ -25,7 +25,7 @@ image_size = 300
 params_count = 8
 params_move_count = 5
 args = {
-    'load_model': False,
+    'load_model': True,
     'model': {
         'encoder': {
             'block': 'ResBasicBlock',
@@ -33,6 +33,7 @@ args = {
             'activ': 'relu'
         },
         'decoder': {
+            'image_size': image_size,
             'block': 'ResBasicBlock',
             'layers': [2, 2, 2, 2],
             'activ': 'lrelu'
@@ -44,11 +45,11 @@ args = {
         'params_count': params_count,
         'params_move_count': params_move_count,
         'save_iter': 10000,
-        'val_iter': 10,
-        'val_iter_count': 10,
-        'batch_size': 32,
+        'val_iter': 10000,
+        'val_iter_count': 320,
+        'batch_size': 32, # TODO
         'num_workers': 16,
-        'lr': 0.001,
+        'lr': 0.0001,
         'w_l2_norm': 0,
         'log_images_count': 5
     }

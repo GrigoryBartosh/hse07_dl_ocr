@@ -4,6 +4,7 @@ import numpy as np
 
 import torch
 import torch.optim as optim
+import torchvision
 
 from common.config import PATH
 import common.utils as utils
@@ -42,6 +43,7 @@ args = {
                 'activ': 'relu'
             },
             'decoder': {
+                'image_size': image_size,
                 'block': 'ResBasicBlock',
                 'layers': [2, 2, 2, 2],
                 'activ': 'lrelu'
@@ -59,11 +61,11 @@ args = {
         'params_move_count': params_move_count,
         'use_gen': True,
         'save_iter': 10000,
-        'val_iter': 100000,
-        'val_iter_count': 10000,
-        'batch_size': 32,
+        'val_iter': 32,
+        'val_iter_count': 32,
+        'batch_size': 32, # TODO
         'num_workers': 16,
-        'lr': 0.001,
+        'lr': 0.0001,
         'w_l2_norm': 0,
         'log_images_count': 5,
         'parallel_process': 8
@@ -74,6 +76,10 @@ args = {
 def set_requires_grad(model, requires_grad):
     for param in model.parameters():
         param.requires_grad = requires_grad
+
+
+def simple_stacker_by_tuple(args):
+    return simple_stacker.stack(*args)
 
 
 class Trainer():
@@ -87,6 +93,7 @@ class Trainer():
 
         self.criterion_gen_kl = losses.TextParamsKLLoss()
         self.criterion_ocr_detect = losses.OCRLoss()
+        self.criterion_ocr_detect.to(self.device)
 
         self.optimizer_gen = optim.Adam(
             filter(lambda p: p.requires_grad, model.gen.parameters()),
@@ -122,32 +129,33 @@ class Trainer():
 
         x_t_param, _, _ = self.model.gen(x_i, x_t)
 
-        x_i_out = self.model.staсker(x_i, x_t, x_t_param)
+        x_i_out = self.model.stacker(x_i, x_t, x_t_param)
 
+        x_t = x_t[:, None, :, :].expand(-1, 3, -1, -1)
         img_grid = torchvision.utils.make_grid(
-            torch.cat((x_i, x_t[:, None, :, :], x_i_out)),
+            torch.cat((x_i, x_t, x_i_out)),
             normalize=True,
             nrow=x_i.size(0)
         )
         self.summary_writer.add_image(f'{phase}_gen', img_grid, n_iter)
 
+    def get_bboxes_single(self, text, params):
+        return simple_stacker.stack(t, self.args['image_size'], *p)[1:]
+
     def get_bboxes(self, texts, params):
         move_params = params.cpu().detach().numpy()[:, :self.args['params_move_count']]
+        move_params = [(t, self.args['image_size'], *p) for t, p in zip(texts, move_params)]
         n = self.args['parallel_process']
         with mp.Pool(n) as pool:
-            bboxes_labels = pool.map(
-                lambda t, p: simple_stacker.stack(t, self.args['image_size'], *p)[1:],
-                zip(texts, move_params)
-            )
+            bboxes_labels = pool.map(simple_stacker_by_tuple, move_params)
 
         bboxes, labels = [], []
-        bboxes_labels = list(map(self.box_encoder.encode, zip(*bboxes_labels)))
-        for bb, l in zip(*bboxes_labels):
-            bb = torch.tensor(bb, dtype=torch.float32).to(self.device)
-            l = torch.LongTensor(l).to(self.device)
+        for (_, bb, l) in bboxes_labels:
+            bb = torch.tensor(bb, dtype=torch.float32)
+            l = torch.LongTensor(l)
             bb, l = self.box_encoder.encode(bb, l)
-            bboxes.append(bb)
-            labels.append(l)
+            bboxes.append(bb.to(self.device))
+            labels.append(l.to(self.device))
 
         bboxes = torch.stack(bboxes)
         labels = torch.stack(labels)
@@ -157,7 +165,7 @@ class Trainer():
     def calc_losses_gen(self, x_i, x_t, text):
         x_t_param, x_t_param_mu, x_t_param_logvar = self.model.gen(x_i, x_t)
 
-        x_i_out = self.model.staсker(x_i, x_t, x_t_param)
+        x_i_out = self.model.stacker(x_i, x_t, x_t_param)
         x_bb, x_l = self.get_bboxes(text, x_t_param)
 
         x_bb_p, x_l_p = self.model.ocr(x_i_out)
@@ -169,9 +177,9 @@ class Trainer():
         return loss_gen_kl, loss_ocr_detecet
 
     def calc_losses_no_gen(self, x_i, x_t, x_rgb, x_bb, x_l):
-        x_i = self.model.staсker.stack(x_i, x_t, x_rgb)
+        x_i = self.model.stacker.stack(x_i, x_t, x_rgb)
 
-        x_bb_p, x_l_p = self.model.ocr(x_bb_out, x_bb)
+        x_bb_p, x_l_p = self.model.ocr(x_i)
 
         loss_ocr_detecet = self.criterion_ocr_detect(x_bb_p, x_l_p, x_bb, x_l)
 
@@ -189,7 +197,7 @@ class Trainer():
 
         if self.args['use_gen']:
             self.optimizer_gen.zero_grad()
-            loss_gen_kl, loss_ocr_detecet = self.calc_losses_gen(x_i, x_t, text)
+            loss_gen_kl, loss_ocr_detecet = self.calc_losses_gen(x_i, x_t, texts)
             loss_ocr_detecet = -loss_ocr_detecet
             loss_total = loss_gen_kl + loss_ocr_detecet
             gen_losses = [loss_gen_kl.item(), loss_ocr_detecet.item(), loss_total.item()]
@@ -197,7 +205,7 @@ class Trainer():
             self.optimizer_gen.step()
 
             self.optimizer_ocr.zero_grad()
-            _, loss_ocr_detecet = self.calc_losses_gen(x_i, x_t, text)
+            _, loss_ocr_detecet = self.calc_losses_gen(x_i, x_t, texts)
             loss_total = loss_ocr_detecet
             ocr_losses = [loss_ocr_detecet.item(), loss_total.item()]
             loss_total.backward()
@@ -245,8 +253,6 @@ class Trainer():
         self.all_val_ocr_losses += [losses]
 
         if val_n_iter >= self.args['val_iter_count']:
-            self.all_val_ocr_losses = np.stack(self.all_val_ocr_losses, axis=1).mean(axis=1)
-
             self.log_ocr_losses(
                 'Validation',
                 np.stack(self.all_val_ocr_losses, axis=1).mean(axis=1),
@@ -255,7 +261,8 @@ class Trainer():
 
             self.all_val_ocr_losses = []
 
-            self.log_images('Validation', x_i, x_t, target, params_move, train_n_iter)
+            if self.args['use_gen']:
+                self.log_images('Validation', x_i, x_t, train_n_iter)
 
 
 if __name__ == '__main__':
