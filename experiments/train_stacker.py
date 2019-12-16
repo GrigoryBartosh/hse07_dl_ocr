@@ -40,7 +40,7 @@ args = {
         },
         'params_move_count': params_move_count
     },
-    'train': { # TODO
+    'train': {
         'image_size': image_size,
         'params_count': params_count,
         'params_move_count': params_move_count,
