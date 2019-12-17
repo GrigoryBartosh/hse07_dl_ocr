@@ -3,9 +3,9 @@ import json
 import shutil
 import itertools
 
-import matplotlib.pyplot as plt
-import matplotlib.patches as patches
 from PIL import Image
+from PIL import ImageDraw
+from PIL import ImageFont
 
 import numpy as np
 
@@ -282,7 +282,7 @@ class BoxEncoder():
         return bboxes_out[max_ids, :], labels_out[max_ids], scores_out[max_ids]
 
 
-def draw_patches(img, bboxes, labels, scores=None, order="xywh", label_map={}):
+def draw_patches(img, bboxes, labels, scores=None, order="xywh", label_map=None):
     im = Image.fromarray(img.astype(np.uint8))
     if len(bboxes) != 0:   
         draw = ImageDraw.Draw(im)     
@@ -292,7 +292,7 @@ def draw_patches(img, bboxes, labels, scores=None, order="xywh", label_map={}):
             cx, cy, w, h = bboxes[:, 0],  bboxes[:, 1],  bboxes[:, 2],  bboxes[:, 3]
             x0, y0, x1, y1 = cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2
 
-        htot, wtot, _ = imm.shape
+        htot, wtot, _ = img.shape
         x0 *= wtot
         y0 *= htot
         x1 *= wtot
@@ -305,12 +305,12 @@ def draw_patches(img, bboxes, labels, scores=None, order="xywh", label_map={}):
         for (x0, y0, x1, y1), label, score in zip(bboxes, labels, scores):
             if label == 0:
                 continue
-            if label_map != {}:
-                label = label_map[label]
-            else:
-                label = label_to_char(label)
+
+            if label_map != None:
+                label = label_map(label)
+
             font = ImageFont.truetype(PATH['FONTS']['LOBSTER'], int(x1 - x0))
             delta = font.getsize(label)[1] + 5
-            draw.rectangle([x0, y0, x1, y1], outline='#ff0000', width=int(htot / 200 + 1))
+            draw.rectangle([x0, y0, x1, y1], outline='#ff0000')
             draw.text([x0, y0 - delta], label, fill='#ff00ff', font=font)
     return np.array(im)

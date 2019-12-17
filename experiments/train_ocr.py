@@ -146,10 +146,10 @@ class Trainer():
             ids = scores > 0.5
             bboxes, labels, scores = bboxes[ids], labels[ids], scores[ids]
             img = img.cpu().numpy()
-            img = (img.transpose(1, 2, 0) + 1) / 2
+            img = (img.transpose(1, 2, 0) + 1) / 2 * 255
             img = utils.draw_patches(img, bboxes, labels, scores=scores,
                                      order='ltrb', label_map=utils.label_to_char)
-            img = (img.transpose(2, 0, 1) - 128.) / 128.
+            img = img.transpose(2, 0, 1) * 2. / 255. - 1.
             img_bb.append(torch.tensor(img, dtype=torch.float32))
         img_bb = torch.stack(img_bb)
 

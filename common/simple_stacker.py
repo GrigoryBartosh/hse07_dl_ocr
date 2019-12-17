@@ -152,4 +152,4 @@ def stack(text, size, angle=0, ratio=0, scale=0, shift_x=0, shift_y=0):
     
     bbs, label = build_bb(text, size, x1, y1, angle, ratio, font1, l, shift_x, shift_y)
     
-    return (np.asarray(pillowImage) / 128. - 1.), bbs, label
+    return (np.asarray(pillowImage) * 2. / 255. - 1.), bbs, label
