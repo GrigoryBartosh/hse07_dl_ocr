@@ -334,9 +334,7 @@ def draw_patches(img, bboxes, labels, scores=None, order="xywh", label_map={}): 
             if label == 0:
                 continue
 
-            print(label)
             label = label_map(label)
-            print(label)
             score = round(score, 2) if score is not None else None
             text = '{}: {:.4}'.format(label, score) if score is not None else label
 

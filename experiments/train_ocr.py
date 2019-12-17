@@ -15,6 +15,7 @@ from common.model import FullModelWrapper
 import common.simple_stacker as simple_stacker
 
 import common.losses as losses
+import common.metrics as metrics
 
 image_size = 300
 params_count = 8
@@ -95,6 +96,8 @@ class Trainer():
         self.criterion_ocr_detect = losses.OCRLoss()
         self.criterion_ocr_detect.to(self.device)
 
+        self.metric_map = metrics.MetricMAP(device=self.device)
+
         self.optimizer_gen = optim.Adam(
             filter(lambda p: p.requires_grad, model.gen.parameters()),
             lr=self.args['lr'],
@@ -140,7 +143,7 @@ class Trainer():
             bboxes = bboxes.cpu().numpy()
             labels = labels.cpu().numpy()
             scores = scores.cpu().numpy()
-            ids = scores > 0
+            ids = scores > 0.5
             bboxes, labels, scores = bboxes[ids], labels[ids], scores[ids]
             img = img.cpu().numpy()
             img = (img.transpose(1, 2, 0) + 1) / 2
@@ -202,11 +205,10 @@ class Trainer():
         return loss_ocr_detecet
 
     def step(self, batch, n_iter):
-        x_i, (texts, x_t, x_t_p, x_t_params, x_t_bb, x_t_l) = batch
+        x_i, (texts, x_t, _, x_t_params, x_t_bb, x_t_l) = batch
 
         x_i = x_i.to(self.device)
         x_t = x_t.to(self.device)
-        x_t_p = x_t_p.to(self.device)
         x_t_params = x_t_params.to(self.device)
         x_t_bb = x_t_bb.to(self.device)
         x_t_l = x_t_l.to(self.device)
@@ -233,7 +235,7 @@ class Trainer():
             self.optimizer_ocr.zero_grad()
             loss_ocr_detecet = self.calc_losses_no_gen(
                 x_i,
-                x_t_p,
+                x_t,
                 x_t_params[:, self.args['params_move_count']:],
                 x_t_bb,
                 x_t_l
@@ -246,11 +248,10 @@ class Trainer():
             self.log_ocr_losses('Train', ocr_losses, n_iter)
 
     def eval(self, batch, train_n_iter, val_n_iter):
-        x_i, (texts, x_t, x_t_p, x_t_params, x_t_bb, x_t_l) = batch
+        x_i, (texts, x_t, _, x_t_params, x_t_bb, x_t_l) = batch
 
         x_i = x_i.to(self.device)
         x_t = x_t.to(self.device)
-        x_t_p = x_t_p.to(self.device)
         x_t_params = x_t_params.to(self.device)
         x_t_bb = x_t_bb.to(self.device)
         x_t_l = x_t_l.to(self.device)
@@ -258,7 +259,7 @@ class Trainer():
         with torch.no_grad():
             loss_ocr_detecet = self.calc_losses_no_gen(
                 x_i,
-                x_t_p,
+                x_t,
                 x_t_params[:, self.args['params_move_count']:],
                 x_t_bb,
                 x_t_l
@@ -268,14 +269,24 @@ class Trainer():
 
             self.all_val_ocr_losses += [losses]
 
+            x_bb_p, x_l_p = self.model.ocr(
+                self.model.stacker.stack(
+                    x_i, x_t, x_t_params[:, self.args['params_move_count']:]))
+            self.metric_map.add(x_bb_p, x_l_p, x_t_bb, x_t_l)
+
             if val_n_iter >= self.args['val_iter_count']:
                 self.log_ocr_losses(
                     'Validation',
                     np.stack(self.all_val_ocr_losses, axis=1).mean(axis=1),
                     train_n_iter
                 )
-
                 self.all_val_ocr_losses = []
+
+                self.summary_writer.add_scalar(
+                    'Metrics/mAP',
+                    self.metric_map.get()[1],
+                    train_n_iter
+                )
 
                 self.log_images('Validation', x_i, x_t, x_t_params, train_n_iter)
 
