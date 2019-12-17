@@ -283,13 +283,7 @@ class BoxEncoder():
 
 
 def draw_patches(img, bboxes, labels, scores=None, order="xywh", label_map={}):
-    imm = np.zeros((img.shape[0], img.shape[1], 3))
-    for i in range(img.shape[0]):
-        for j in range(img.shape[1]):
-            imm[i][j] = np.array([0, 0, 0]) if img[i][j] == -1 else np.array([255, 255, 255])
-    
-    imm = imm.astype(np.uint8)
-    im = Image.fromarray(imm)
+    im = Image.fromarray(img.astype(np.uint8))
     if len(bboxes) != 0:   
         draw = ImageDraw.Draw(im)     
         if order == "ltrb":
