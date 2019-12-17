@@ -12,6 +12,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from common.config import PATH
 
 __all__ = ['make_dir', 'remove_dir', 'activation_by_name']
 
@@ -281,75 +282,41 @@ class BoxEncoder():
         return bboxes_out[max_ids, :], labels_out[max_ids], scores_out[max_ids]
 
 
-def fig2data(fig):
-    fig.canvas.draw()
-
-    w, h = fig.canvas.get_width_height()
-    buf = np.fromstring(fig.canvas.tostring_argb(), dtype=np.uint8)
-    buf.shape = (w, h, 4)
- 
-    buf = np.roll(buf, 3, axis=2)
-    return buf
-
-
-def fig2img(fig):
-    buf = fig2data(fig)
-    w, h, d = buf.shape
-    return Image.frombytes("RGBA", (w ,h), buf.tostring())
-
-
-def fig2arr(fig, w, h, c):
-    img = fig2img(fig)
-    arr = np.asarray(img)
-    aw, ah, _ = arr.shape
-    pad_x, pad_y = (aw - h) // 2, (ah - h) // 2
-    arr = arr[pad_x:-pad_x, pad_y:-pad_y, :c]
-    return arr
-
-
-def draw_patches(img, bboxes, labels, scores=None, order="xywh", label_map={}): # TODO check output
-    plt.imshow(img)
-    plt.axis('off')
-    ax = plt.gca()
-
-    img_w, img_h, img_c = img.shape
-
-    if len(bboxes) > 0:
+def draw_patches(img, bboxes, labels, scores=None, order="xywh", label_map={}):
+    imm = np.zeros((img.shape[0], img.shape[1], 3))
+    for i in range(img.shape[0]):
+        for j in range(img.shape[1]):
+            imm[i][j] = np.array([0, 0, 0]) if img[i][j] == -1 else np.array([255, 255, 255])
+    
+    imm = imm.astype(np.uint8)
+    im = Image.fromarray(imm)
+    if len(bboxes) != 0:   
+        draw = ImageDraw.Draw(im)     
         if order == "ltrb":
-            xmin, ymin, xmax, ymax = bboxes[:, 0],  bboxes[:, 1],  bboxes[:, 2],  bboxes[:, 3]
-            cx, cy, w, h = (xmin + xmax) / 2, (ymin + ymax) / 2, xmax - xmin, ymax - ymin
+            x0, y0, x1, y1 = bboxes[:, 0],  bboxes[:, 1],  bboxes[:, 2],  bboxes[:, 3]
         else:
             cx, cy, w, h = bboxes[:, 0],  bboxes[:, 1],  bboxes[:, 2],  bboxes[:, 3]
+            x0, y0, x1, y1 = cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2
 
-        htot, wtot, _ = img.shape
-        cx *= wtot
-        cy *= htot
-        w *= wtot
-        h *= htot
+        htot, wtot, _ = imm.shape
+        x0 *= wtot
+        y0 *= htot
+        x1 *= wtot
+        y1 *= htot
+        x1 += 1
+        y1 += 1
 
-        bboxes = zip(cx, cy, w, h)
-
+        bboxes = zip(x0, y0, x1, y1)
         scores = scores if scores is not None else [None] * len(labels)
-        for (cx, cy, w, h), label, score in zip(bboxes, labels, scores):
+        for (x0, y0, x1, y1), label, score in zip(bboxes, labels, scores):
             if label == 0:
                 continue
-
-            label = label_map(label)
-            score = round(score, 2) if score is not None else None
-            text = '{}: {:.4}'.format(label, score) if score is not None else label
-
-            ax.add_patch(patches.Rectangle(
-                (cx - 0.5 * w, cy - 0.5 * h),
-                w, h, fill=False, color='r')
-            )
-            ax.text(
-                cx - 0.5 * w, cy - 0.5 * h, text,
-                ha='center', va='center', size=7,
-                bbox=dict(boxstyle='round', fc='y', ec='0.5', alpha=0.3)
-            )
-
-    arr = fig2arr(plt.gcf(), img_w, img_h, img_c)
-    plt.cla()
-    plt.clf()
-
-    return arr
+            if label_map != {}:
+                label = label_map[label]
+            else:
+                label = label_to_char(label)
+            font = ImageFont.truetype(PATH['FONTS']['LOBSTER'], int(x1 - x0))
+            delta = font.getsize(label)[1] + 5
+            draw.rectangle([x0, y0, x1, y1], outline='#ff0000', width=int(htot / 200 + 1))
+            draw.text([x0, y0 - delta], label, fill='#ff00ff', font=font)
+    return np.array(im)
