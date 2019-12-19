@@ -258,24 +258,56 @@ class Decoder(nn.Module):
         return x
 
 
+class MLP(nn.Module):
+    def __init__(self, layer_dims, activ='relu', last_active=False, dropout_rate=0):
+        super(MLP, self).__init__()
+
+        layers = []
+        in_dim, layer_dims = layer_dims[0], layer_dims[1:]
+        for dim in layer_dims[:-1]:
+            layers += [
+                nn.Linear(in_dim, dim),
+                activation_by_name(activ),
+                nn.Dropout(dropout_rate)
+            ]
+            in_dim = dim
+
+        layers += [nn.Linear(in_dim, layer_dims[-1])]
+        if last_active:
+            layers += [activation_by_name(activ)]
+        self.layer = nn.Sequential(*layers)
+
+    def forward(self, x):
+        x = self.layer(x)
+        return x
+
+
 class Mover(nn.Module):
     def __init__(self, args):
         super(Mover, self).__init__()
 
-        layer_sizes = args['encoder']['layers']
+        encoder_layer_sizes = args['encoder']['layers']
         self.encoder = Encoder(
             self.get_block_by_name(args['encoder']['block']),
-            layer_sizes,
+            encoder_layer_sizes,
             args['encoder']['activ']
         )
 
-        planes = 64 * 2 ** (len(layer_sizes) - 1)
+        mlp_layer_sizes = args['mlp']['layers']
+        self.mlp = MLP(
+            mlp_layer_sizes,
+            args['mlp']['activ'],
+            True,
+            args['mlp']['dropout_rate']
+        )
+
+        planes = 64 * 2 ** (len(encoder_layer_sizes) - 1)
 
         self.decoder = Decoder(
             args['decoder']['image_size'],
             self.get_block_by_name(args['decoder']['block']),
             args['decoder']['layers'],
-            planes + args['params_move_count'],
+            planes + mlp_layer_sizes[-1],
             planes,
             args['decoder']['activ']
         )
@@ -295,6 +327,7 @@ class Mover(nn.Module):
 
         x = self.encoder(x)
 
+        x_params_move = self.mlp(x_params_move)
         x_params_move = x_params_move[:, :, None, None]
         x_params_move = x_params_move.expand(-1, -1, x.size(2), x.size(3))
         x = torch.cat((x, x_params_move), 1)

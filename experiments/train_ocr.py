@@ -38,7 +38,7 @@ args = {
             'dropout_rate': 0.2
         },
         'stacker': {
-            'encoder': {
+                'encoder': {
                 'block': 'ResBasicBlock',
                 'layers': [2, 2, 2, 2],
                 'activ': 'relu'
@@ -48,6 +48,11 @@ args = {
                 'block': 'ResBasicBlock',
                 'layers': [2, 2, 2, 2],
                 'activ': 'lrelu'
+            },
+            'mlp': {
+                'layers': [params_move_count, 2, 2, 2],
+                'activ': 'lrelu',
+                'dropout_rate': 0
             },
             'params_move_count': params_move_count
         },

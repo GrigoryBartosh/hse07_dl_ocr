@@ -25,7 +25,7 @@ image_size = 300
 params_count = 8
 params_move_count = 5
 args = {
-    'load_model': True,
+    'load_model': False,
     'model': {
         'encoder': {
             'block': 'ResBasicBlock',
@@ -38,18 +38,24 @@ args = {
             'layers': [2, 2, 2, 2],
             'activ': 'lrelu'
         },
+        'mlp': {
+            'layers': [params_move_count, 16, 32],
+            'activ': 'lrelu',
+            'dropout_rate': 0
+        },
         'params_move_count': params_move_count
     },
     'train': {
         'image_size': image_size,
         'params_count': params_count,
         'params_move_count': params_move_count,
-        'save_iter': 50000,
-        'val_iter': 50000,
+        'save_iter': 20000,
+        'val_iter': 20000,
         'val_iter_count': 2048,
-        'batch_size': 48,
+        'batch_size': 24,
         'num_workers': 16,
-        'lr': 0.0001,
+        'lr': 0.00001,
+        'w_recon_auto': 0.5,
         'w_l2_norm': 0,
         'log_images_count': 5
     }
@@ -75,32 +81,52 @@ class Trainer():
 
     def log_losses(self, phase, losses, n_iter):
         self.summary_writer.add_scalar(
-            f'{phase}/reconstruction', losses[0], n_iter)
+            f'{phase}/auto_reconstruction', losses[0], n_iter)
         self.summary_writer.add_scalar(
-            f'{phase}/total', losses[1], n_iter)
+            f'{phase}/reconstruction', losses[1], n_iter)
+        self.summary_writer.add_scalar(
+            f'{phase}/total', losses[2], n_iter)
 
     def log_images(self, phase, x, target, params_move, n_iter):
         n = self.args['log_images_count']
         x, target, params_move = x[:n], target[:n], params_move[:n]
 
         with torch.no_grad():
-            out = self.model.move(x, params_move)
+            zero_params_move = torch.zeros_like(params_move, device=self.device)
+            out = self.model.move(
+                torch.cat((x, x), 0),
+                torch.cat((zero_params_move, params_move), 0)
+            )
+            out_auto, out = out[:batch_size], out[batch_size:]
 
         img_grid = torchvision.utils.make_grid(
-            torch.cat((x[:, None, :, :], target[:, None, :, :], out[:, None, :, :])),
+            torch.cat((
+                x[:, None, :, :],
+                target[:, None, :, :],
+                out_auto[:, None, :, :],
+                out[:, None, :, :],
+            )),
             normalize=True,
             nrow=x.size(0)
         )
         self.summary_writer.add_image(f'{phase}_recon', img_grid, n_iter)
 
     def calc_losses(self, x, params_move, target):
-        out = self.model.move(x, params_move)
+        zero_params_move = torch.zeros_like(params_move, device=self.device)
+        batch_size = x.shape[0]
+        out = self.model.move(
+            torch.cat((x, x), 0),
+            torch.cat((zero_params_move, params_move), 0)
+        )
 
-        loss_recon = self.criterion(out, target)
+        loss_recon_auto = self.criterion(out[:batch_size], x)
+        loss_recon = self.criterion(out[batch_size:], target)
 
-        loss_total = loss_recon
+        loss_total = loss_recon_auto * self.args['w_recon_auto'] + \
+                     loss_recon * (1 - self.args['w_recon_auto'])
 
         losses = np.array([
+            loss_recon_auto.item(),
             loss_recon.item(),
             loss_total.item()
         ])
