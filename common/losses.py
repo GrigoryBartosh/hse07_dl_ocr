@@ -15,7 +15,10 @@ class StackerLoss(nn.Module):
         super(StackerLoss, self).__init__()
 
     def forward(self, x, target):
-        return ((x - target) ** 2).mean()
+        loss = (x - target) ** 2
+        target = (target + 1) / 2
+        loss = loss.sum((1, 2)) / (target ).sum((1, 2))
+        return loss.mean()
 
 
 class TextParamsKLLoss(nn.Module):

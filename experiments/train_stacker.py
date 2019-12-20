@@ -25,7 +25,7 @@ image_size = 300
 params_count = 8
 params_move_count = 5
 args = {
-    'load_model': False,
+    'load_model': True,
     'model': {
         'encoder': {
             'block': 'ResBasicBlock',
@@ -54,8 +54,8 @@ args = {
         'val_iter_count': 2048,
         'batch_size': 24,
         'num_workers': 16,
-        'lr': 0.00001,
-        'w_recon_auto': 0.5,
+        'lr': 0.0001,
+        'w_recon_auto': 0.1,
         'w_l2_norm': 0,
         'log_images_count': 5
     }

@@ -75,7 +75,9 @@ class DatasetTextSampler(data.Dataset):
         self.box_encoder = utils.BoxEncoder()
 
     def _sample_params(self):
-        return np.random.uniform(-1, 1, self.params_count).tolist()
+        params = np.random.uniform(-1, 1, self.params_count).tolist()
+        params[0] = 0 # TODO
+        return params
 
     def _sample_text(self, text):
         text = ''.join([c for c in text if utils.is_char_valid(c) or c == ' '])
