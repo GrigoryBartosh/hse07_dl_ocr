@@ -4,10 +4,24 @@ import torch.nn as nn
 import common.utils as utils
 
 __all__ = [
+    'DiscriminatorLoss',
     'StackerLoss',
     'TextParamsKLLoss',
     'OCRLoss'
 ]
+
+
+class DiscriminatorLoss(nn.Module):
+    EPS = 1e-8
+
+    def __init__(self):
+        super(DiscriminatorLoss, self).__init__()
+
+    def forward(self, input, type):
+        loss = torch.abs(input - type)
+        loss = -torch.log(loss + DiscriminatorLoss.EPS)
+        loss = loss.mean()
+        return loss
 
 
 class StackerLoss(nn.Module):

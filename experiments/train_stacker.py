@@ -27,21 +27,28 @@ params_move_count = 5
 args = {
     'load_model': True,
     'model': {
-        'encoder': {
+        'mover': {
+            'encoder': {
+                'block': 'ResBasicBlock',
+                'layers': [2, 2, 2, 2],
+                'activ': 'relu'
+            },
+            'decoder': {
+                'image_size': image_size,
+                'block': 'ResBasicBlock',
+                'layers': [2, 2, 2, 2],
+                'activ': 'lrelu'
+            },
+            'mlp': {
+                'layers': [params_move_count, 16, 32],
+                'activ': 'lrelu',
+                'dropout_rate': 0
+            }
+        },
+        'dis': {
             'block': 'ResBasicBlock',
             'layers': [2, 2, 2, 2],
             'activ': 'relu'
-        },
-        'decoder': {
-            'image_size': image_size,
-            'block': 'ResBasicBlock',
-            'layers': [2, 2, 2, 2],
-            'activ': 'lrelu'
-        },
-        'mlp': {
-            'layers': [params_move_count, 16, 32],
-            'activ': 'lrelu',
-            'dropout_rate': 0
         },
         'params_move_count': params_move_count
     },
@@ -52,10 +59,11 @@ args = {
         'save_iter': 20000,
         'val_iter': 20000,
         'val_iter_count': 2048,
-        'batch_size': 24,
+        'batch_size': 40,
         'num_workers': 16,
         'lr': 0.0001,
-        'w_recon_auto': 0.1,
+        'w_recon_auto': 0,
+        'w_dis': 0.1,
         'w_l2_norm': 0,
         'log_images_count': 5
     }
@@ -69,23 +77,39 @@ class Trainer():
         self.device = device
         self.summary_writer = summary_writer
 
-        self.criterion = losses.StackerLoss()
+        self.criterion_stacker = losses.StackerLoss()
+        self.criterion_dis = losses.DiscriminatorLoss()
 
-        self.optimizer = optim.Adam(
-            filter(lambda p: p.requires_grad, model.parameters()),
+        self.optimizer_gen = optim.Adam(
+            filter(lambda p: p.requires_grad, model.mover.parameters()),
             lr=self.args['lr'],
             weight_decay=self.args['w_l2_norm']
         )
 
-        self.all_val_losses = []
+        self.optimizer_dis = optim.Adam(
+            filter(lambda p: p.requires_grad, model.discriminator.parameters()),
+            lr=self.args['lr'],
+            weight_decay=self.args['w_l2_norm']
+        )
 
-    def log_losses(self, phase, losses, n_iter):
+        self.all_val_gen_losses = []
+        self.all_val_dis_losses = []
+
+    def log_gen_losses(self, phase, losses, n_iter):
         self.summary_writer.add_scalar(
-            f'{phase}/auto_reconstruction', losses[0], n_iter)
+            f'{phase}_gen/auto_reconstruction', losses[0], n_iter)
         self.summary_writer.add_scalar(
-            f'{phase}/reconstruction', losses[1], n_iter)
+            f'{phase}_gen/reconstruction', losses[1], n_iter)
         self.summary_writer.add_scalar(
-            f'{phase}/total', losses[2], n_iter)
+            f'{phase}_gen/dis', losses[2], n_iter)
+        self.summary_writer.add_scalar(
+            f'{phase}_gen/total', losses[3], n_iter)
+
+    def log_dis_losses(self, phase, losses, n_iter):
+        self.summary_writer.add_scalar(
+            f'{phase}_dis/dis', losses[0], n_iter)
+        self.summary_writer.add_scalar(
+            f'{phase}_dis/total', losses[1], n_iter)
 
     def log_images(self, phase, x, target, params_move, n_iter):
         n = self.args['log_images_count']
@@ -111,23 +135,53 @@ class Trainer():
         )
         self.summary_writer.add_image(f'{phase}_recon', img_grid, n_iter)
 
-    def calc_losses(self, x, params_move, target):
-        zero_params_move = torch.zeros_like(params_move, device=self.device)
-        batch_size = x.shape[0]
-        out = self.model.move(
-            torch.cat((x, x), 0),
-            torch.cat((zero_params_move, params_move), 0)
-        )
+    def calc_gen_losses(self, x, params_move, target):
+        if self.args['w_recon_auto'] == 0:
+            out = self.model.move(x, params_move)
 
-        loss_recon_auto = self.criterion(out[:batch_size], x)
-        loss_recon = self.criterion(out[batch_size:], target)
+            loss_recon_auto = 0
+            loss_recon = self.criterion_stacker(out, target)
+        else:
+            zero_params_move = torch.zeros_like(params_move, device=self.device)
+            batch_size = x.shape[0]
+            out = self.model.move(
+                torch.cat((x, x), 0),
+                torch.cat((zero_params_move, params_move), 0)
+            )
 
-        loss_total = loss_recon_auto * self.args['w_recon_auto'] + \
-                     loss_recon * (1 - self.args['w_recon_auto'])
+            loss_recon_auto = self.criterion_stacker(out[:batch_size], x)
+            loss_recon = self.criterion_stacker(out, target)
+
+        out_dis = self.model.dis(out)
+
+        loss_dis = self.criterion_dis(out_dis, type=0)
+
+        loss_total = (loss_recon_auto * self.args['w_recon_auto'] + \
+                      loss_recon * (1 - self.args['w_recon_auto'])) * (1 - self.args['w_dis']) + \
+                     loss_dis * self.args['w_dis']
 
         losses = np.array([
-            loss_recon_auto.item(),
+            loss_recon_auto.item() if type(loss_recon_auto) != int else loss_recon_auto,
             loss_recon.item(),
+            loss_dis.item(),
+            loss_total.item()
+        ])
+
+        return losses, loss_total
+
+    def calc_dis_losses(self, x, params_move, target):
+        out = self.model.move(x, params_move)
+
+        out_dis_0 = self.model.dis(target)
+        out_dis_1 = self.model.dis(out)
+
+        loss_dis = 0.5 * (self.criterion_dis(out_dis_0, type=0) +  \
+                          self.criterion_dis(out_dis_1, type=1))
+
+        loss_total = loss_dis
+
+        losses = np.array([
+            loss_dis.item(),
             loss_total.item()
         ])
 
@@ -141,12 +195,18 @@ class Trainer():
         params_move = params_move.to(self.device)
         target = target.to(self.device)
 
-        self.optimizer.zero_grad()
-        losses, loss_total = self.calc_losses(x, params_move, target)
-        loss_total.backward()
-        self.optimizer.step()
+        self.optimizer_gen.zero_grad()
+        gen_losses, gen_loss_total = self.calc_gen_losses(x, params_move, target)
+        gen_loss_total.backward()
+        self.optimizer_gen.step()
 
-        self.log_losses('Train', losses, n_iter)
+        self.optimizer_dis.zero_grad()
+        dis_losses, dis_loss_total = self.calc_dis_losses(x, params_move, target)
+        dis_loss_total.backward()
+        self.optimizer_dis.step()
+
+        self.log_gen_losses('Train', gen_losses, n_iter)
+        self.log_dis_losses('Train', dis_losses, n_iter)
 
     def eval(self, batch, train_n_iter, val_n_iter):
         _, (_, x, target, params, _, _) = batch
@@ -157,18 +217,26 @@ class Trainer():
         target = target.to(self.device)
 
         with torch.no_grad():
-            losses, _ = self.calc_losses(x, params_move, target)
+            gen_losses, _ = self.calc_gen_losses(x, params_move, target)
+            dis_losses, _ = self.calc_dis_losses(x, params_move, target)
 
-            self.all_val_losses += [losses]
+            self.all_val_gen_losses += [gen_losses]
+            self.all_val_dis_losses += [dis_losses]
 
             if val_n_iter >= self.args['val_iter_count']:
-                self.log_losses(
+                self.log_gen_losses(
                     'Validation',
-                    np.stack(self.all_val_losses, axis=1).mean(axis=1),
+                    np.stack(self.all_val_gen_losses, axis=1).mean(axis=1),
+                    train_n_iter
+                )
+                self.log_dis_losses(
+                    'Validation',
+                    np.stack(self.all_val_dis_losses, axis=1).mean(axis=1),
                     train_n_iter
                 )
 
-                self.all_val_losses = []
+                self.all_val_gen_losses = []
+                self.all_val_dis_losses = []
 
                 self.log_images('Validation', x, target, params_move, train_n_iter)
 

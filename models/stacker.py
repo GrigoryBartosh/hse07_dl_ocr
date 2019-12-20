@@ -167,6 +167,17 @@ class ResBottleneck(nn.Module):
         return out
 
 
+def get_block_by_name(block_name):
+    if block_name == 'SimpleBlock':
+        return SimpleBlock
+    elif block_name == 'ResBasicBlock':
+        return ResBasicBlock
+    elif block_name == 'ResBottleneck':
+        return ResBottleneck
+
+    assert False, f"Unsupported block: {args['block']}"
+
+
 class Encoder(nn.Module):
     def __init__(self, block, layer_sizes, activ='relu'):
         super(Encoder, self).__init__()
@@ -288,7 +299,7 @@ class Mover(nn.Module):
 
         encoder_layer_sizes = args['encoder']['layers']
         self.encoder = Encoder(
-            self.get_block_by_name(args['encoder']['block']),
+            get_block_by_name(args['encoder']['block']),
             encoder_layer_sizes,
             args['encoder']['activ']
         )
@@ -305,22 +316,12 @@ class Mover(nn.Module):
 
         self.decoder = Decoder(
             args['decoder']['image_size'],
-            self.get_block_by_name(args['decoder']['block']),
+            get_block_by_name(args['decoder']['block']),
             args['decoder']['layers'],
             planes + mlp_layer_sizes[-1],
             planes,
             args['decoder']['activ']
         )
-
-    def get_block_by_name(self, block_name):
-        if block_name == 'SimpleBlock':
-            return SimpleBlock
-        elif block_name == 'ResBasicBlock':
-            return ResBasicBlock
-        elif block_name == 'ResBottleneck':
-            return ResBottleneck
-
-        assert False, f"Unsupported block: {args['block']}"
 
     def forward(self, x, x_params_move):
         x = x[:, None, :, :]
@@ -339,14 +340,49 @@ class Mover(nn.Module):
         return x
 
 
+class Discriminator(nn.Module):
+    def __init__(self, args):
+        super(Discriminator, self).__init__()
+
+        block = get_block_by_name(args['block'])
+        self.encoder = Encoder(
+            block,
+            args['layers'],
+            args['activ']
+        )
+        self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
+        self.fc = nn.Linear(512 * block.expansion, 1)
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self, x):
+        x = x[:, None, :, :]
+
+        x = self.encoder(x)
+        x = self.avgpool(x)
+
+        x = x.squeeze()
+        x = self.fc(x)
+        
+        x = x.squeeze()
+        x = self.sigmoid(x)
+
+        return x
+
+
 class Stacker(nn.Module):
     def __init__(self, args):
         super(Stacker, self).__init__()
 
-        self.mover = Mover(args)
+        self.mover = Mover(args['mover'])
+        self.discriminator = Discriminator(args['dis'])
+
+        self.params_move_count = args['params_move_count']
 
     def move(self, x_t, x_params_move):
         return self.mover(x_t, x_params_move)
+
+    def dis(self, x):
+        return self.discriminator(x)
 
     def stack(self, x_i, x_t, x_rgb):
         x_t = (x_t + 1) / 2
@@ -355,6 +391,7 @@ class Stacker(nn.Module):
         return x_i * (1 - x_t) + x_rgb * x_t
 
     def forward(self, x_i, x_t, x_params):
-        x_params_move, x_rgb = x_params[:, :5], x_params[:, 5:]
+        x_params_move = x_params[:, :self.params_move_count]
+        x_rgb = x_params[:, self.params_move_count:]
         x_t = self.move(x_t, x_params_move)
         return self.stack(x_i, x_t, x_rgb)
