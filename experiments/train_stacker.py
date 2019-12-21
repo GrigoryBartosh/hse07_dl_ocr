@@ -150,7 +150,7 @@ class Trainer():
             )
 
             loss_recon_auto = self.criterion_stacker(out[:batch_size], x)
-            loss_recon = self.criterion_stacker(out, target)
+            loss_recon = self.criterion_stacker(out[batch_size:], target)
 
         out_dis = self.model.dis(out)
 
