@@ -25,7 +25,7 @@ image_size = 300
 params_count = 8
 params_move_count = 5
 args = {
-    'load_model': False, # TODO
+    'load_model': True,
     'model': {
         'mover': {
             'encoder': {
@@ -58,7 +58,7 @@ args = {
         'params_move_count': params_move_count,
         'save_iter': 20000,
         'val_iter': 20000,
-        'val_iter_count': 4000,
+        'val_iter_count': 2000,
         'batch_size': 40,
         'num_workers': 16,
         'lr': 0.0001,
