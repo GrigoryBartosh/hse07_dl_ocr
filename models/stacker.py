@@ -45,7 +45,7 @@ class SimpleBlock(nn.Module):
     expansion = 1
 
     def __init__(self, in_planes, out_planes=None, stride=1,
-                 activ='relu', upsample_block=False):
+                 activ='relu', use_batch_norm=True, upsample_block=False):
         super(SimpleBlock, self).__init__()
 
         if out_planes is None:
@@ -53,8 +53,10 @@ class SimpleBlock(nn.Module):
 
         conv = upsample3x3 if upsample_block else conv3x3
 
+        norm = nn.BatchNorm2d if use_batch_norm else nn.InstanceNorm2d
+
         self.conv1 = conv(in_planes, out_planes, stride)
-        self.bn1 = nn.BatchNorm2d(out_planes)
+        self.bn1 = norm(out_planes)
         self.activ1 = activation_by_name(activ)
 
     def forward(self, x):
@@ -69,7 +71,7 @@ class ResBasicBlock(nn.Module):
     expansion = 1
 
     def __init__(self, in_planes, planes=None, out_planes=None, stride=1,
-                 activ='relu', upsample_block=False):
+                 activ='relu', use_batch_norm=True, upsample_block=False):
         super(ResBasicBlock, self).__init__()
 
         if planes is None:
@@ -78,11 +80,13 @@ class ResBasicBlock(nn.Module):
         if out_planes is None:
             out_planes = planes * self.expansion
 
+        norm = nn.BatchNorm2d if use_batch_norm else nn.InstanceNorm2d
+
         self.residual = None
         if stride != 1 or in_planes != out_planes:
             self.residual = nn.Sequential(
                 (upsample3x3 if upsample_block else conv1x1)(in_planes, out_planes, stride),
-                nn.BatchNorm2d(out_planes)
+                norm(out_planes)
             )
 
         conv = upsample3x3 if upsample_block else conv3x3
@@ -90,9 +94,9 @@ class ResBasicBlock(nn.Module):
         self.activ = activation_by_name(activ)
 
         self.conv1 = conv(in_planes, planes, 1 if upsample_block else stride)
-        self.bn1 = nn.BatchNorm2d(planes)
+        self.bn1 = norm(planes)
         self.conv2 = conv(planes, out_planes, stride if upsample_block else 1)
-        self.bn2 = nn.BatchNorm2d(out_planes)
+        self.bn2 = norm(out_planes)
 
     def forward(self, x):
         identity = x
@@ -104,7 +108,7 @@ class ResBasicBlock(nn.Module):
         out = self.conv2(out)
         out = self.bn2(out)
 
-        if self.residual is not None:
+        if self.residual:
             identity = self.residual(x)
 
         out += identity
@@ -117,7 +121,7 @@ class ResBottleneck(nn.Module):
     expansion = 4
 
     def __init__(self, in_planes, planes=None, out_planes=None, stride=1,
-                 activ='relu', upsample_block=False):
+                 activ='relu', use_batch_norm=True, upsample_block=False):
         super(ResBottleneck, self).__init__()
 
         if planes is None:
@@ -126,11 +130,13 @@ class ResBottleneck(nn.Module):
         if out_planes is None:
             out_planes = planes * self.expansion
 
+        norm = nn.BatchNorm2d if use_batch_norm else nn.InstanceNorm2d
+
         self.residual = None
         if stride != 1 or in_planes != out_planes:
             self.residual = nn.Sequential(
                 (upsample3x3 if upsample_block else conv1x1)(in_planes, out_planes, stride),
-                nn.BatchNorm2d(out_planes)
+                norm(out_planes)
             )
 
         conv = upsample3x3 if upsample_block else conv3x3
@@ -138,11 +144,11 @@ class ResBottleneck(nn.Module):
         self.activ = activation_by_name(activ)
 
         self.conv1 = conv1x1(in_planes, planes)
-        self.bn1 = nn.BatchNorm2d(planes)
+        self.bn1 = norm(planes)
         self.conv2 = conv(planes, planes, stride)
-        self.bn2 = nn.BatchNorm2d(planes)
+        self.bn2 = norm(planes)
         self.conv3 = conv1x1(planes, out_planes)
-        self.bn3 = nn.BatchNorm2d(out_planes)
+        self.bn3 = norm(out_planes)
 
     def forward(self, x):
         identity = x
@@ -158,7 +164,7 @@ class ResBottleneck(nn.Module):
         out = self.conv3(out)
         out = self.bn3(out)
 
-        if self.residual is not None:
+        if self.residual:
             identity = self.residual(x)
 
         out += identity
@@ -179,32 +185,34 @@ def get_block_by_name(block_name):
 
 
 class Encoder(nn.Module):
-    def __init__(self, block, layer_sizes, activ='relu'):
+    def __init__(self, block, layer_sizes, activ='relu', use_batch_norm=True):
         super(Encoder, self).__init__()
+
+        norm = nn.BatchNorm2d if use_batch_norm else nn.InstanceNorm2d
 
         in_planes = 64
         self.conv1 = conv7x7(1, in_planes, stride=2)
-        self.bn1 = nn.BatchNorm2d(in_planes)
+        self.bn1 = norm(in_planes)
         self.activ1 = activation_by_name(activ)
         self.conv2 = conv3x3(in_planes, in_planes, stride=2)
-        self.bn2 = nn.BatchNorm2d(in_planes)
+        self.bn2 = norm(in_planes)
         self.activ2 = activation_by_name(activ)
 
-        layers = [self._make_layer(block, in_planes, in_planes, 1, layer_sizes[0], activ)]
+        layers = [self._make_layer(block, in_planes, in_planes, 1, layer_sizes[0], activ, use_batch_norm)]
         for layer_size in layer_sizes[1:]:
-            layers += [self._make_layer(block, in_planes, in_planes * 2, 2, layer_size, activ)]
+            layers += [self._make_layer(block, in_planes, in_planes * 2, 2, layer_size, activ, use_batch_norm)]
             in_planes = in_planes * 2
 
         self.layer = nn.Sequential(*layers)
 
-    def _make_layer(self, block, in_planes, out_planes, stride, layer_size, activ):
+    def _make_layer(self, block, in_planes, out_planes, stride, layer_size, activ, use_batch_norm):
         layers = [block(
             in_planes, out_planes=out_planes,
-            stride=stride, activ=activ
+            stride=stride, activ=activ, use_batch_norm=use_batch_norm
         )]
 
         for _ in range(1, layer_size):
-            layers += [block(out_planes, activ=activ)]
+            layers += [block(out_planes, activ=activ, use_batch_norm=use_batch_norm)]
 
         return nn.Sequential(*layers)
 
@@ -348,7 +356,8 @@ class Discriminator(nn.Module):
         self.encoder = Encoder(
             block,
             args['layers'],
-            args['activ']
+            args['activ'],
+            use_batch_norm=False
         )
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         self.fc = nn.Linear(512 * block.expansion, 1)

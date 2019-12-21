@@ -25,7 +25,7 @@ image_size = 300
 params_count = 8
 params_move_count = 5
 args = {
-    'load_model': True,
+    'load_model': False, # TODO
     'model': {
         'mover': {
             'encoder': {
@@ -58,7 +58,7 @@ args = {
         'params_move_count': params_move_count,
         'save_iter': 20000,
         'val_iter': 20000,
-        'val_iter_count': 2048,
+        'val_iter_count': 4000,
         'batch_size': 40,
         'num_workers': 16,
         'lr': 0.0001,
@@ -175,7 +175,7 @@ class Trainer():
         out_dis_0 = self.model.dis(target)
         out_dis_1 = self.model.dis(out)
 
-        loss_dis = 0.5 * (self.criterion_dis(out_dis_0, type=0) +  \
+        loss_dis = 0.5 * (self.criterion_dis(out_dis_0, type=0) + \
                           self.criterion_dis(out_dis_1, type=1))
 
         loss_total = loss_dis
