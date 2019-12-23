@@ -68,15 +68,15 @@ args = {
             'label_num': utils.labels_count()
         }
     },
-    'train': { # TODO
+    'train': {
         'image_size': image_size,
         'params_count': params_count,
         'params_move_count': params_move_count,
         'use_gen': False,
-        'save_iter': 10000,
-        'val_iter': 4,
-        'val_iter_count': 4,
-        'batch_size': 4, # TODO
+        'save_iter': 70000,
+        'val_iter': 70000,
+        'val_iter_count': 9600,
+        'batch_size': 192,
         'num_workers': 16,
         'lr': 0.0001,
         'w_l2_norm': 0,
