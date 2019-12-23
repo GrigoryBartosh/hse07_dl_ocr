@@ -112,8 +112,9 @@ class MetricMAP():
     def add(self, det_boxes, det_scores, true_boxes, true_labels):
         out = self.box_encoder.decode_batch(det_boxes, det_scores)
         det_boxes, det_labels, det_scores = zip(*out)
+        det_boxes = list(det_boxes)
         det_labels = list(det_labels)
-        for i in range(len(det_labels)):
+        for i in range(len(det_boxes)):
             det_boxes[i] = det_boxes[i].to(self.device)
             det_labels[i] = det_labels[i].type(torch.int64).to(self.device)
 
