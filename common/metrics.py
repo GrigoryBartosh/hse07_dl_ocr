@@ -112,11 +112,11 @@ class MetricMAP():
     def add(self, det_boxes, det_scores, true_boxes, true_labels):
         out = self.box_encoder.decode_batch(det_boxes, det_scores)
         det_boxes, det_labels, det_scores = zip(*out)
-        det_boxes = list(det_boxes)
-        det_labels = list(det_labels)
+        det_boxes, det_labels, det_scores = list(det_boxes), list(det_labels), list(det_scores)
         for i in range(len(det_boxes)):
             det_boxes[i] = det_boxes[i].to(self.device)
             det_labels[i] = det_labels[i].type(torch.int64).to(self.device)
+            det_scores[i] = det_scores[i].to(self.device)
 
         true_scores = F.one_hot(true_labels, num_classes=self.num_classes)
         true_scores = (true_scores * 1e9).type(torch.float32)
