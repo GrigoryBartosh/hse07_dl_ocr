@@ -162,7 +162,7 @@ class Trainer():
             img = utils.draw_patches(img, bboxes, labels, scores=scores,
                                      order='ltrb', label_map=utils.label_to_char)
             img = img.transpose(2, 0, 1) * 2. / 255. - 1.
-            img_bb.append(torch.tensor(img, dtype=torch.float32))
+            img_bb.append(torch.tensor(img, dtype=torch.float32, device=self.device))
         img_bb = torch.stack(img_bb)
 
         x_t = x_t[:, None, :, :].expand(-1, 3, -1, -1)
