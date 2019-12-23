@@ -38,21 +38,28 @@ args = {
             'dropout_rate': 0.2
         },
         'stacker': {
+            'mover': {
                 'encoder': {
+                    'block': 'ResBasicBlock',
+                    'layers': [2, 2, 2, 2],
+                    'activ': 'relu'
+                },
+                'decoder': {
+                    'image_size': image_size,
+                    'block': 'ResBasicBlock',
+                    'layers': [2, 2, 2, 2],
+                    'activ': 'lrelu'
+                },
+                'mlp': {
+                    'layers': [params_move_count, 16, 32],
+                    'activ': 'lrelu',
+                    'dropout_rate': 0
+                }
+            },
+            'dis': {
                 'block': 'ResBasicBlock',
                 'layers': [2, 2, 2, 2],
                 'activ': 'relu'
-            },
-            'decoder': {
-                'image_size': image_size,
-                'block': 'ResBasicBlock',
-                'layers': [2, 2, 2, 2],
-                'activ': 'lrelu'
-            },
-            'mlp': {
-                'layers': [params_move_count, 2, 2, 2],
-                'activ': 'lrelu',
-                'dropout_rate': 0
             },
             'params_move_count': params_move_count
         },
