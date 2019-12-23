@@ -21,7 +21,7 @@ image_size = 300
 params_count = 8
 params_move_count = 5
 args = {
-    'load_model': False,
+    'load_model': True,
     'requires_grad': {
         'gen': True,
         'ocr': True
@@ -75,7 +75,7 @@ args = {
         'use_gen': False,
         'save_iter': 70000,
         'val_iter': 70000,
-        'val_iter_count': 9600,
+        'val_iter_count': 192,
         'batch_size': 192,
         'num_workers': 16,
         'lr': 0.0001,
