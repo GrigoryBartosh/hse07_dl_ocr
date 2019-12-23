@@ -110,6 +110,9 @@ class MetricMAP():
         return average_precisions
 
     def add(self, det_boxes, det_scores, true_boxes, true_labels):
+        det_boxes = det_boxes.to(self.device)
+        det_scores = det_scores.to(self.device)
+
         out = self.box_encoder.decode_batch(det_boxes, det_scores)
         det_boxes, det_labels, det_scores = zip(*out)
         det_labels = list(det_labels)
