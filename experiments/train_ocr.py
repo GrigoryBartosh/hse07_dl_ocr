@@ -21,7 +21,7 @@ image_size = 300
 params_count = 8
 params_move_count = 5
 args = {
-    'load_model': True,
+    'load_model': False,
     'requires_grad': {
         'gen': True,
         'ocr': True
@@ -73,10 +73,10 @@ args = {
         'params_count': params_count,
         'params_move_count': params_move_count,
         'use_gen': False,
-        'save_iter': 70000,
-        'val_iter': 70000,
-        'val_iter_count': 192,
-        'batch_size': 192,
+        'save_iter': 100000,
+        'val_iter': 100000,
+        'val_iter_count': 128,
+        'batch_size': 128,
         'num_workers': 16,
         'lr': 0.0001,
         'w_l2_norm': 0,
@@ -138,14 +138,16 @@ class Trainer():
         self.summary_writer.add_scalar(
             f'{phase}/total', losses[1], n_iter)
 
-    def log_images(self, phase, x_i, x_t, x_t_params, n_iter):
+    def log_images(self, phase, x_i, x_t, x_t_p, x_t_params, n_iter):
         n = self.args['log_images_count']
-        x_i, x_t, x_t_params = x_i[:n], x_t[:n], x_t_params[:n]
+        x_i, x_t, x_t_p, x_t_params = x_i[:n], x_t[:n], x_t_p[:n], x_t_params[:n]
 
         if self.args['use_gen']:
             x_t_params, _, _ = self.model.gen(x_i, x_t)
-
-        x_i_out = self.model.stacker(x_i, x_t, x_t_params)
+            x_i_out = self.model.stacker(x_i, x_t, x_t_params)
+        else:
+            x_i_out = self.model.stacker.stack(
+                x_i, x_t_p, x_t_params[:, self.args['params_move_count']:])
 
         x_bb_p, x_l_p = self.model.ocr(x_i_out)
         out = self.box_encoder.decode_batch(x_bb_p, x_l_p)
@@ -217,10 +219,11 @@ class Trainer():
         return loss_ocr_detecet
 
     def step(self, batch, n_iter):
-        x_i, (texts, x_t, _, x_t_params, x_t_bb, x_t_l) = batch
+        x_i, (texts, x_t, x_t_p, x_t_params, x_t_bb, x_t_l) = batch
 
         x_i = x_i.to(self.device)
         x_t = x_t.to(self.device)
+        x_t_p = x_t_p.to(self.device)
         x_t_params = x_t_params.to(self.device)
         x_t_bb = x_t_bb.to(self.device)
         x_t_l = x_t_l.to(self.device)
@@ -247,7 +250,7 @@ class Trainer():
             self.optimizer_ocr.zero_grad()
             loss_ocr_detecet = self.calc_losses_no_gen(
                 x_i,
-                x_t,
+                x_t_p,
                 x_t_params[:, self.args['params_move_count']:],
                 x_t_bb,
                 x_t_l
@@ -260,10 +263,11 @@ class Trainer():
             self.log_ocr_losses('Train', ocr_losses, n_iter)
 
     def eval(self, batch, train_n_iter, val_n_iter):
-        x_i, (texts, x_t, _, x_t_params, x_t_bb, x_t_l) = batch
+        x_i, (texts, x_t, x_t_p, x_t_params, x_t_bb, x_t_l) = batch
 
         x_i = x_i.to(self.device)
         x_t = x_t.to(self.device)
+        x_t_p = x_t_p.to(self.device)
         x_t_params = x_t_params.to(self.device)
         x_t_bb = x_t_bb.to(self.device)
         x_t_l = x_t_l.to(self.device)
@@ -271,7 +275,7 @@ class Trainer():
         with torch.no_grad():
             loss_ocr_detecet = self.calc_losses_no_gen(
                 x_i,
-                x_t,
+                x_t_p,
                 x_t_params[:, self.args['params_move_count']:],
                 x_t_bb,
                 x_t_l
@@ -283,7 +287,7 @@ class Trainer():
 
             x_bb_p, x_l_p = self.model.ocr(
                 self.model.stacker.stack(
-                    x_i, x_t, x_t_params[:, self.args['params_move_count']:]))
+                    x_i, x_t_p, x_t_params[:, self.args['params_move_count']:]))
             self.metric_map.add(x_bb_p, x_l_p, x_t_bb, x_t_l)
 
             if val_n_iter >= self.args['val_iter_count']:
@@ -300,7 +304,7 @@ class Trainer():
                     train_n_iter
                 )
 
-                self.log_images('Validation', x_i, x_t, x_t_params, train_n_iter)
+                self.log_images('Validation', x_i, x_t, x_t_p, x_t_params, train_n_iter)
 
 
 if __name__ == '__main__':

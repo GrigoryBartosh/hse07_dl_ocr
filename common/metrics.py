@@ -137,4 +137,7 @@ class MetricMAP():
         vs = self.all_average_precisions.values()
         map_value = sum(vs) / self.batch_count / len(vs)
 
+        self.batch_count = 0
+        self.all_average_precisions = {l: 0 for l in range(1, self.num_classes)}
+
         return average_precisions, map_value
